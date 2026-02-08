@@ -11,9 +11,11 @@ venv/
 .env/
 
 # Data and generated outputs
-/data/raw/
+/data/raw/*
+!/data/raw/.gitkeep
 /data/external/
-/outputs/
+/outputs/*
+!/outputs/.gitkeep
 
 # OS/editor
 .DS_Store
