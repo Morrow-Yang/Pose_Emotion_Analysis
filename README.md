@@ -35,12 +35,21 @@ python scripts/innovation/bvh_temporal_analysis.py --root "data/raw/kinematic-da
 ### Cross-Modal Validation
 Compare 2D estimates from AlphaPose against 3D Ground Truth from BVH.
 ```bash
-python scripts/innovation/compare_2d_3d.py --csv2d "outputs/analysis/..." --csv3d "outputs/analysis/..." --out "outputs/analysis/validation"
+python scripts/innovation/compare_2d_3d.py --csv2d "outputs/analysis/temporal/v1/temporal_motion_features.csv" --csv3d "outputs/analysis/temporal_3d/v1/bvh_temporal_summary.csv" --out "outputs/analysis/validation"
 ```
 **Arguments:**
 - `--csv2d`: Path to the 2D features CSV.
 - `--csv3d`: Path to the 3D features CSV.
 - `--out`: Directory to save correlation plots.
+
+### Emotion Classification Baseline (Research Innovation)
+Train a Machine Learning model (Random Forest) to evaluate the discriminative power of handcrafted body features across 7 emotions.
+```bash
+python scripts/innovation/emotion_classifier_v1.py --csv "outputs/analysis/temporal/v1/temporal_motion_features.csv" --out "outputs/experiments/classification_v1"
+```
+**Arguments:**
+- `--csv`: Path to the input features CSV (static + temporal).
+- `--out`: Directory to save the classification report and feature importance plots.
 
 ## Project Structure
 ```
