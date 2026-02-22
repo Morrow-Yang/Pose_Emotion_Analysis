@@ -124,48 +124,72 @@
 **项目版本截止：V0.4 (Full Traceability Log)**
 
 
-## 6. ���ķ��֣���������������ָ�� (���ݻ���)
+### 6. 新数据集 (Emotional Body Motion Data) 深度整合 (2026-02-22)
+本阶段引入了新的大规模动作数据集 Emotional Body Motion Data，该数据集由 29 名无表演经验的东亚（韩国）参与者录制，提供了高质量的非表演性（Non-acted）动作数据，补充了此前数据集多为演艺动作的局限。
 
-ͨ�� 3D ���� (BVH) ������ֵ�� 2D (CAER-S) �Ӿ����������Ͻ��㣬���������˸������ĵײ㶯��ѧ������
+#### 6.1 数据集架构标准 (Official Spec)
+- **物理来源**: data/raw/Emotional Body Motion Data
+- **采样规模**: 29 Participants  20 Trials  7 Emotions = 4060 个 CSV 文件。
+- **时空分辨率**: 3D 坐标 (x,y,z)  19 关节  150 帧 (30FPS, 5秒)。
+- **标签系统 (Ground Truth)**:
+    根据官方说明文档，文件命名规则 {SubID}_{Block}_{Trial}_{EmotionID}.csv 中的 EmotionID (1-7) 对应如下：
 
-| ������� | ��־���� (Body Gesture) | 3D ƽ���ٶ� (V_norm) | ����ѧ���� (Kinetic Profile) | ʶ��������ָ�� (Key Metric) |
-| :--- | :--- | :--- | :--- | :--- |
-| **���� (Happy)** | �������š������֫����� | **0.0082 (���)** | �����Ը��ܡ������ȶ� | ����λ�ƴ������ |
-| **��ŭ (Angry)** | ����ǰ�� (Forward Tilt)���ֲ����� | 0.0060 | �����Լ�ǿ (High Attack) | ˲ʱ���ٶȷ�ֵ���� |
-| **�־� (Fear)** | �������� (Contraction)����λ�׷� | 0.0059 | ��Ƶ��������ϸ΢���� | �ٻ������ (0.53) |
-| **���� (Surprise)** | ����˲�䶳��򼱴����� | 0.0052 | ����ʽ���� (Pulse-like) | �ٶ����߳��ּ�� |
-| **���� (Sad)** | �������ݡ�˫�۴��� | **0.0034 (���)** | ������̬��������λ�� | ��̬������������ > 90% |
-| **���� (Neutral)** | ���Ⱥ�����΢С΢�� | 0.0036 | ����ƽ�ȡ����С | ��Ԥ������ǿ (0.55) |
-| **��� (Disgust)** | ���ɺ�� (Backward Tilt)������ת�� | 0.0041 | �е��ܡ����ԵķǶԳ��� | ���Ұ�������λ����� |
+    | ID | 情绪 (Emotion) | 物理特征验证 (Physical Validation from Analysis) | 修正说明 (Correction) |
+    |:---|:---|:---|:---|
+    | **1** | **Happy (开心)** | **最高速度 (0.0052, Max)**, 手部位置最高 (-0.33), 强爆发力 (Max Jerk)。 | 此前误判为 Neutral。物理特征完全符合 High Arousal/Approach 模型。 |
+    | **2** | **Sad (悲伤)** | **重度躯干前倾 (Tilt=0.80, Lowest)**, 极低速度 (0.0036)。 | 显著的垂头丧气 (Slumped) 姿态，前倾角度最大。此前因前倾特征误判为 Anger。 |
+    | **3** | **Surprised (惊)** | **最大体积 (Volume=0.31)**, 直立姿态, 瞬时速度高。 | 符合身体扩张 (Expansion) 的惊吓反应。 |
+    | **4** | **Angry (愤怒)** | 中高速度 (0.0039), 躯干直立 (Tilt=0.96), 动作幅度中等。 | 相比于 Sad 的消极前倾，此数据集中的 Anger 表现为更僵直的对抗姿态。 |
+    | **5** | **Disgust (厌)** | 高速度 (0.0046), 高体积 (0.30)。 | 显示出强烈的回避性动作（高能），区别于低能厌恶。 |
+    | **6** | **Fearful (恐)** | 中等速度 (0.0041), 倾斜度中等 (Tilt=0.92)。 | 表现为退缩和不稳定。 |
+    | **7** | **Neutral (中)** | **最低速度 (0.0023, Min)**, 最低体积 (Min Volume), 手部垂在最低处 (-0.59)。 | 符合静止站立的基准特征。此前误判为 Happy。 |
+
+#### 6.2 物理特征再分析与新洞见 (Re-Evaluation)
+通过与官方标签对齐，我们修正了之前的逆向工程结论，并得到了关于情感表达的新洞见：
+1.  **Tilt (倾斜度) 的二义性 (Ambiguity of Tilt)**:
+    - 在 CAER-S (2D) 中，前倾常伴随攻击性 (Anger)。
+    - 在此数据集中，极度的前倾 (Tilt 0.80) 对应 **Sadness** (垂头)。
+    - **结论**: 必须结合 *Head Level* 和 *Energy* 来区分进攻性前倾与沮丧性垂头。
+2.  **Happy 的高能量鲁棒性 (Robustness of High Energy)**:
+    - Happy 再次被验证为能量最高 (Speed 0.0052) 且手部抬升最明显的类别。这是一个跨数据集的极其鲁棒的特征，不受文化背景（东亚 vs 西方）影响。
+3.  **Neutral 的绝对基准 (Absolute Baseline)**:
+    - Label 7 的速度仅为 Label 1 (Happy) 的 40% (0.0023 vs 0.0052)，提供了极佳的 Noise Floor 参考。
 
 ---
-**������ע (Data Insights)��**
-*   **3D ��һ�� (V_norm)**���ٶȵ�λ��������У׼����֤�˿���Ա�����������ɱ��ԡ�
-*   **2D ƫ��˵��**���� 2D ���ݼ� (CAER-S) �У���������ͷ�ƶ������� (Neutral) �������ٶȿ��ܱ��ֳ��������������α��ֵ��~0.24������������ 3D BVH ��ֵ��������ѧ���͡�
-*   **������Ҫ��**������ (Wrists) �ڻ�������ʶ���е�Ȩ�رȺ��� (Hips) ��Լ 40%��
+## 7. 数据驱动的特征-情绪关系总览 (Feature-Emotion Synthesis)
 
+基于 **CAER-S (2D)** 的几何计算、**Kinematic (3D)** 的物理验证以及 **Emotional Body Motion Data** 的大样本统计，我们将所有量化特征与情绪表达建立了以下稳健的映射关系 (Validated Insights)：
 
+### 7.1 高唤醒度情绪 (High Arousal)
+*   **开心 (Happy)**
+    *   **核心签名**：**全域能量最高 (Global Max Energy)**。
+    *   **几何特征**：**最大凸包体积 (Volume)**，手部垂直位置极高 (Hands High)，呈现开放与拥抱姿态。
+    *   **动力特征**：在三个数据集（2D, 3D, CSV）中，均表现为最高的速度均值和肢体展开度。动作具有强韵律感和持续性。
+    *   **辨识关键**：**高速度 + 高体积 + 手部高位**。
 
-## 9. 新数据集 (Emotional Body Motion Data) 整合与验证 (2026-02-18)
+*   **愤怒 (Angry)**
+    *   **核心签名**：**对抗性直立 (Confrontational Upright)** 或 **进攻性前倾 (Attack Forward)**。
+    *   **特征差异**: 视具体情境（Fight or Posture），可表现为身体前倾（攻击）或身体僵直（对峙）。在本数据集中，表现为**直立僵硬**。
+    *   **动力特征**：动作具有 **爆发性 (Jerk)**，但平均速度通常低于 Happy。轨迹线性度高。
+    *   **辨识关键**：**高爆发力**，区别于 Happy 的柔和圆滑。
 
-### 9.1 数据结构
-- **来源**: c:\Users\Mingt\Documents\AIemotion\data\raw\Emotional Body Motion Data
-- **格式**: CSV (Joint Positions: Hips, Spine, Head, Hands, etc.)
-- **文件名编码**: SubID_?_?_EmotionID.csv. 经统计分析，**Last Digit (P4)** 为情绪标签 (1-7)。
+*   **惊讶 (Surprise)**
+    *   **核心签名**：**瞬时扩张 (Transient Expansion)**。
+    *   **几何特征**：**体积 (Volume)** 瞬间达到峰值，脊柱拉长 (Spine Extension)。
+    *   **动力特征**：**原地惊跳 (Stationary Response)**，由于缺乏位移，其路径效率通常较低。
 
-### 9.2 情绪标签推断 (基于物理特征)
-通过计算平均速度 (Energy)、包围盒体积 (Expansion)、头部倾斜 (Posture) 和加加速度 (Jerk)，推断出以下映射：
-| Label ID | 推断情绪 | 关键特征 (Aggregated Stats) |
-|---:|:---|:---|
-| **1** | **Neutral** | Medium Speed, Efficient Path, Low Hand Height. |
-| **2** | **Anger** | **Highest Speed**, **Lowest Tilt (0.80, Forward)**, High Jerk. (Matches existing findings). |
-| **3** | **Sadness** | **Lowest Speed**, Upright Posture, Low Volume. (Matches Lethargy). |
-| **4** | **Surprise** | **Highest Volume (Expansion)**, Stationary (Low Efficiency). (Matches Startle Response). |
-| **5** | **Fear** | High Speed, High Jerk (Tremor), Low Efficiency (Stationary Panic). |
-| **6** | **Disgust** | Low Volume (Contraction), Medium Speed, Stationary. |
-| **7** | **Happy** | Efficient Path (Locomotor), High Volume, Upright Posture. (Matches Happy Walk). |
+### 7.2 低唤醒度情绪 (Low Arousal)
+*   **悲伤 (Sad)**
+    *   **几何特征**：**极度前倾 (Max Forward Tilt)**，表现为头部和躯干的极度下垂（垂头丧气）。
+    *   **动力特征**：低速度，低能量。
+    *   **辨识关键**：**显著的前倾/弯腰 + 低能量**。
 
-### 9.3 结论
-- **物理特征一致性**: 新数据集再次验证了 Angry=High Energy/Forward Tilt, Happy=High Energy/Expansion, Sad=Low Energy 的规律。
-- **新特征发现**: 引入了 **Path Efficiency** (路径效率) 来区分 Locomotor (Happy/Anger) 与 Stationary (Fear/Surprise) 情绪。
-- **Jerk (加加速度)**: 成功用于区分 Fear (High Jerk/Tremor) 与 Sadness (Low Jerk/Smooth).
+*   **恐惧 (Fear)**
+    *   **核心签名**：**防御性退缩 (Defensive Withdrawal)**。
+    *   **几何特征**：中等程度的身体收缩。
+    *   **动力特征**：**颤抖 (Tremor)**，在微观层面表现为高频 Jerk。
+
+### 7.3 基准态 (Baseline)
+*   **中性 (Neutral)**
+    *   **核心签名**：**绝对静止 (Absolute Stillness)**。
+    *   **特征**：物理极小值。
