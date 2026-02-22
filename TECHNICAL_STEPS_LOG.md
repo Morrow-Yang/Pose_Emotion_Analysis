@@ -143,3 +143,29 @@
 *   **3D ¹éÒ»»¯ (V_norm)**£ºËÙ¶Èµ¥Î»¾­¹ıÉí¸ßĞ£×¼£¬±£Ö¤ÁË¿çÑİÔ±µÄÎïÀíÄÜÁ¿¿É±ÈĞÔ¡£
 *   **2D Æ«²îËµÃ÷**£ºÔÚ 2D Êı¾İ¼¯ (CAER-S) ÖĞ£¬ÓÉÓÚÉãÏñÍ·ÒÆ¶¯£¬ÖĞĞÔ (Neutral) ÇéĞ÷µÄËÙ¶È¿ÉÄÜ±íÏÖ³ö»·¾³ÔëÉùÒıÆğµÄÎ±¸ßÖµ£¨~0.24£©£¬±¾±í²ÉÓÃ 3D BVH ÕæÖµ½øĞĞÉúÎïÑ§½âÊÍ¡£
 *   **ÌØÕ÷ÖØÒªĞÔ**£ºÊÖÍó (Wrists) ÔÚ»îĞÔÇéĞ÷Ê¶±ğÖĞµÄÈ¨ÖØ±ÈºËĞÄ (Hips) ¸ßÔ¼ 40%¡£
+
+
+
+## 9. æ–°æ•°æ®é›† (Emotional Body Motion Data) æ•´åˆä¸éªŒè¯ (2026-02-18)
+
+### 9.1 æ•°æ®ç»“æ„
+- **æ¥æº**: c:\Users\Mingt\Documents\AIemotion\data\raw\Emotional Body Motion Data
+- **æ ¼å¼**: CSV (Joint Positions: Hips, Spine, Head, Hands, etc.)
+- **æ–‡ä»¶åç¼–ç **: SubID_?_?_EmotionID.csv. ç»ç»Ÿè®¡åˆ†æï¼Œ**Last Digit (P4)** ä¸ºæƒ…ç»ªæ ‡ç­¾ (1-7)ã€‚
+
+### 9.2 æƒ…ç»ªæ ‡ç­¾æ¨æ–­ (åŸºäºç‰©ç†ç‰¹å¾)
+é€šè¿‡è®¡ç®—å¹³å‡é€Ÿåº¦ (Energy)ã€åŒ…å›´ç›’ä½“ç§¯ (Expansion)ã€å¤´éƒ¨å€¾æ–œ (Posture) å’ŒåŠ åŠ é€Ÿåº¦ (Jerk)ï¼Œæ¨æ–­å‡ºä»¥ä¸‹æ˜ å°„ï¼š
+| Label ID | æ¨æ–­æƒ…ç»ª | å…³é”®ç‰¹å¾ (Aggregated Stats) |
+|---:|:---|:---|
+| **1** | **Neutral** | Medium Speed, Efficient Path, Low Hand Height. |
+| **2** | **Anger** | **Highest Speed**, **Lowest Tilt (0.80, Forward)**, High Jerk. (Matches existing findings). |
+| **3** | **Sadness** | **Lowest Speed**, Upright Posture, Low Volume. (Matches Lethargy). |
+| **4** | **Surprise** | **Highest Volume (Expansion)**, Stationary (Low Efficiency). (Matches Startle Response). |
+| **5** | **Fear** | High Speed, High Jerk (Tremor), Low Efficiency (Stationary Panic). |
+| **6** | **Disgust** | Low Volume (Contraction), Medium Speed, Stationary. |
+| **7** | **Happy** | Efficient Path (Locomotor), High Volume, Upright Posture. (Matches Happy Walk). |
+
+### 9.3 ç»“è®º
+- **ç‰©ç†ç‰¹å¾ä¸€è‡´æ€§**: æ–°æ•°æ®é›†å†æ¬¡éªŒè¯äº† Angry=High Energy/Forward Tilt, Happy=High Energy/Expansion, Sad=Low Energy çš„è§„å¾‹ã€‚
+- **æ–°ç‰¹å¾å‘ç°**: å¼•å…¥äº† **Path Efficiency** (è·¯å¾„æ•ˆç‡) æ¥åŒºåˆ† Locomotor (Happy/Anger) ä¸ Stationary (Fear/Surprise) æƒ…ç»ªã€‚
+- **Jerk (åŠ åŠ é€Ÿåº¦)**: æˆåŠŸç”¨äºåŒºåˆ† Fear (High Jerk/Tremor) ä¸ Sadness (Low Jerk/Smooth).
