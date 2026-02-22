@@ -30,6 +30,7 @@ def parse_args():
     ap.add_argument("--root", required=True, help="Root directory containing per-emotion subfolders.")
     ap.add_argument("--json_name", default="alphapose-results.json", help="AlphaPose result filename in each emotion folder.")
     ap.add_argument("--out_dir", required=False, default=None, help="Output directory. If not set, uses <root>/pose_analysis_v4_cli.")
+    ap.add_argument("--precomputed_csv", required=False, default=None, help="Optional: path to a precomputed feature CSV (e.g., merged几何+时序). If set, skip JSON parsing.")
     return ap.parse_args()
 
 _args = parse_args()
@@ -37,6 +38,7 @@ ROOT = Path(_args.root)
 JSON_NAME = _args.json_name
 OUT_DIR = Path(_args.out_dir) if _args.out_dir else (ROOT / "pose_analysis_v4_cli")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+PRECOMP_CSV = Path(_args.precomputed_csv) if _args.precomputed_csv else None
 
 CONF_TH = 0.30
 MIN_VALID_KP = 10
@@ -170,135 +172,138 @@ def ensure_dir(p: Path):
 # -----------------------------
 # Load all emotions
 # -----------------------------
-records = []
-emotion_dirs = sorted([d for d in ROOT.iterdir() if d.is_dir()])
+if PRECOMP_CSV:
+    print(f"[+] Load precomputed features: {PRECOMP_CSV}")
+    df = pd.read_csv(PRECOMP_CSV)
+else:
+    records = []
+    emotion_dirs = sorted([d for d in ROOT.iterdir() if d.is_dir()])
 
-for ed in emotion_dirs:
-    emotion = ed.name
-    jf = ed / JSON_NAME
-    if not jf.exists():
-        continue
-    with open(jf, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    if not isinstance(data, list):
-        print(f"[WARN] {jf} not a list. Skipped.")
-        continue
-
-    for item in data:
-        try:
-            image_id = item.get("image_id", None)
-            kps = item.get("keypoints", None)
-            box = item.get("box", [np.nan]*4)
-            score = item.get("score", np.nan)
-            if kps is None:
-                continue
-
-            xy, cf = parse_kp(kps)
-
-            valid = int(np.sum(cf >= CONF_TH))
-            if valid < MIN_VALID_KP:
-                continue
-
-            norm_xy, info = normalize_pose(xy, cf)
-            if norm_xy is None:
-                continue
-
-            # core points
-            ls = safe_point(norm_xy, cf, "left_shoulder")
-            rs = safe_point(norm_xy, cf, "right_shoulder")
-            lw = safe_point(norm_xy, cf, "left_wrist")
-            rw = safe_point(norm_xy, cf, "right_wrist")
-            le = safe_point(norm_xy, cf, "left_elbow")
-            re = safe_point(norm_xy, cf, "right_elbow")
-            lh = safe_point(norm_xy, cf, "left_hip")
-            rh = safe_point(norm_xy, cf, "right_hip")
-            lk = safe_point(norm_xy, cf, "left_knee")
-            rk = safe_point(norm_xy, cf, "right_knee")
-            la = safe_point(norm_xy, cf, "left_ankle")
-            ra = safe_point(norm_xy, cf, "right_ankle")
-            nose = safe_point(norm_xy, cf, "nose")
-
-            # Features (interpretable)
-            shoulder_width = np.linalg.norm(ls - rs) if (ls is not None and rs is not None) else np.nan
-
-            # hand height relative to shoulder (y axis: image coords; after normalization still same sign convention)
-            left_hand_height = (lw[1] - ls[1]) if (lw is not None and ls is not None) else np.nan
-            right_hand_height = (rw[1] - rs[1]) if (rw is not None and rs is not None) else np.nan
-
-            # arm span openness
-            arm_span = abs(lw[0] - rw[0]) if (lw is not None and rw is not None) else np.nan
-            arm_span_norm = arm_span / shoulder_width if (np.isfinite(arm_span) and np.isfinite(shoulder_width) and shoulder_width > 1e-6) else np.nan
-
-            # elbow angles
-            left_elbow_angle = angle(ls, le, lw) if (ls is not None and le is not None and lw is not None) else np.nan
-            right_elbow_angle = angle(rs, re, rw) if (rs is not None and re is not None and rw is not None) else np.nan
-
-            # knee angles
-            left_knee_angle = angle(lh, lk, la) if (lh is not None and lk is not None and la is not None) else np.nan
-            right_knee_angle = angle(rh, rk, ra) if (rh is not None and rk is not None and ra is not None) else np.nan
-
-            # contraction
-            contract = contraction_index(norm_xy, cf)
-
-            # symmetry
-            hand_height_asym = abs(left_hand_height - right_hand_height) if (np.isfinite(left_hand_height) and np.isfinite(right_hand_height)) else np.nan
-            elbow_asym = abs(left_elbow_angle - right_elbow_angle) if (np.isfinite(left_elbow_angle) and np.isfinite(right_elbow_angle)) else np.nan
-
-            # head position relative to shoulder mid (proxy for head up/down & lean)
-            if nose is not None and ls is not None and rs is not None:
-                shoulder_mid = (ls + rs) / 2.0
-                head_dx = float(nose[0] - shoulder_mid[0])
-                head_dy = float(nose[1] - shoulder_mid[1])
-            else:
-                head_dx, head_dy = np.nan, np.nan
-
-            # bbox size proxy (helps later stratify if needed)
-            bx, by, bw, bh = [float(x) for x in (box if len(box) == 4 else [np.nan]*4)]
-
-            rec = {
-                "emotion": emotion,
-                "image_id": image_id,
-                "pose_score": float(score) if score is not None else np.nan,
-                "valid_kp": valid,
-                "bbox_w": bw,
-                "bbox_h": bh,
-                "shoulder_width": shoulder_width,
-                "left_hand_height": left_hand_height,
-                "right_hand_height": right_hand_height,
-                "arm_span_norm": arm_span_norm,
-                "left_elbow_angle": left_elbow_angle,
-                "right_elbow_angle": right_elbow_angle,
-                "left_knee_angle": left_knee_angle,
-                "right_knee_angle": right_knee_angle,
-                "contraction": contract,
-                "hand_height_asym": hand_height_asym,
-                "elbow_asym": elbow_asym,
-                "head_dx": head_dx,
-                "head_dy": head_dy,
-            }
-
-            # For clustering later: save normalized coords (34 dims)
-            flat = norm_xy.reshape(-1)
-            rec.update({f"kp_{i:02d}": float(flat[i]) for i in range(flat.shape[0])})
-            records.append(rec)
-
-        except Exception as e:
-            print(f"[ERROR] Processing item: {e}")
+    for ed in emotion_dirs:
+        emotion = ed.name
+        jf = ed / JSON_NAME
+        if not jf.exists():
+            continue
+        with open(jf, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            print(f"[WARN] {jf} not a list. Skipped.")
             continue
 
-df = pd.DataFrame(records)
-if df.empty:
-    raise RuntimeError("No valid samples loaded. Check paths/filters.")
+        for item in data:
+            try:
+                image_id = item.get("image_id", None)
+                kps = item.get("keypoints", None)
+                box = item.get("box", [np.nan]*4)
+                score = item.get("score", np.nan)
+                if kps is None:
+                    continue
 
-# Save features
-feat_csv = OUT_DIR / "pose_features_v4.csv"
-df.to_csv(feat_csv, index=False, encoding="utf-8-sig")
-print("Saved features:", feat_csv)
-print("Samples:", len(df), "Emotions:", df["emotion"].nunique())
-print("Emotion labels:", df["emotion"].unique())
+                xy, cf = parse_kp(kps)
 
-# Define features for clustering
-FEATURES = [
+                valid = int(np.sum(cf >= CONF_TH))
+                if valid < MIN_VALID_KP:
+                    continue
+
+                norm_xy, info = normalize_pose(xy, cf)
+                if norm_xy is None:
+                    continue
+
+                # core points
+                ls = safe_point(norm_xy, cf, "left_shoulder")
+                rs = safe_point(norm_xy, cf, "right_shoulder")
+                lw = safe_point(norm_xy, cf, "left_wrist")
+                rw = safe_point(norm_xy, cf, "right_wrist")
+                le = safe_point(norm_xy, cf, "left_elbow")
+                re = safe_point(norm_xy, cf, "right_elbow")
+                lh = safe_point(norm_xy, cf, "left_hip")
+                rh = safe_point(norm_xy, cf, "right_hip")
+                lk = safe_point(norm_xy, cf, "left_knee")
+                rk = safe_point(norm_xy, cf, "right_knee")
+                la = safe_point(norm_xy, cf, "left_ankle")
+                ra = safe_point(norm_xy, cf, "right_ankle")
+                nose = safe_point(norm_xy, cf, "nose")
+
+                # Features (interpretable)
+                shoulder_width = np.linalg.norm(ls - rs) if (ls is not None and rs is not None) else np.nan
+
+                # hand height relative to shoulder (y axis: image coords; after normalization still same sign convention)
+                left_hand_height = (lw[1] - ls[1]) if (lw is not None and ls is not None) else np.nan
+                right_hand_height = (rw[1] - rs[1]) if (rw is not None and rs is not None) else np.nan
+
+                # arm span openness
+                arm_span = abs(lw[0] - rw[0]) if (lw is not None and rw is not None) else np.nan
+                arm_span_norm = arm_span / shoulder_width if (np.isfinite(arm_span) and np.isfinite(shoulder_width) and shoulder_width > 1e-6) else np.nan
+
+                # elbow angles
+                left_elbow_angle = angle(ls, le, lw) if (ls is not None and le is not None and lw is not None) else np.nan
+                right_elbow_angle = angle(rs, re, rw) if (rs is not None and re is not None and rw is not None) else np.nan
+
+                # knee angles
+                left_knee_angle = angle(lh, lk, la) if (lh is not None and lk is not None and la is not None) else np.nan
+                right_knee_angle = angle(rh, rk, ra) if (rh is not None and rk is not None and ra is not None) else np.nan
+
+                # contraction
+                contract = contraction_index(norm_xy, cf)
+
+                # symmetry
+                hand_height_asym = abs(left_hand_height - right_hand_height) if (np.isfinite(left_hand_height) and np.isfinite(right_hand_height)) else np.nan
+                elbow_asym = abs(left_elbow_angle - right_elbow_angle) if (np.isfinite(left_elbow_angle) and np.isfinite(right_elbow_angle)) else np.nan
+
+                # head position relative to shoulder mid (proxy for head up/down & lean)
+                if nose is not None and ls is not None and rs is not None:
+                    shoulder_mid = (ls + rs) / 2.0
+                    head_dx = float(nose[0] - shoulder_mid[0])
+                    head_dy = float(nose[1] - shoulder_mid[1])
+                else:
+                    head_dx, head_dy = np.nan, np.nan
+
+                # bbox size proxy (helps later stratify if needed)
+                bx, by, bw, bh = [float(x) for x in (box if len(box) == 4 else [np.nan]*4)]
+
+                rec = {
+                    "emotion": emotion,
+                    "image_id": image_id,
+                    "pose_score": float(score) if score is not None else np.nan,
+                    "valid_kp": valid,
+                    "bbox_w": bw,
+                    "bbox_h": bh,
+                    "shoulder_width": shoulder_width,
+                    "left_hand_height": left_hand_height,
+                    "right_hand_height": right_hand_height,
+                    "arm_span_norm": arm_span_norm,
+                    "left_elbow_angle": left_elbow_angle,
+                    "right_elbow_angle": right_elbow_angle,
+                    "left_knee_angle": left_knee_angle,
+                    "right_knee_angle": right_knee_angle,
+                    "contraction": contract,
+                    "hand_height_asym": hand_height_asym,
+                    "elbow_asym": elbow_asym,
+                    "head_dx": head_dx,
+                    "head_dy": head_dy,
+                }
+
+                # For clustering later: save normalized coords (34 dims)
+                flat = norm_xy.reshape(-1)
+                rec.update({f"kp_{i:02d}": float(flat[i]) for i in range(flat.shape[0])})
+                records.append(rec)
+
+            except Exception as e:
+                print(f"[ERROR] Processing item: {e}")
+                continue
+
+    df = pd.DataFrame(records)
+    if df.empty:
+        raise RuntimeError("No valid samples loaded. Check paths/filters.")
+
+    # Save features
+    feat_csv = OUT_DIR / "pose_features_v4.csv"
+    df.to_csv(feat_csv, index=False, encoding="utf-8-sig")
+    print("Saved features:", feat_csv)
+    print("Samples:", len(df), "Emotions:", df["emotion"].nunique())
+    print("Emotion labels:", df["emotion"].unique())
+
+geom_features = [
     "left_hand_height", "right_hand_height",
     "arm_span_norm",
     "left_elbow_angle", "right_elbow_angle",
@@ -308,8 +313,24 @@ FEATURES = [
     "left_knee_angle", "right_knee_angle",
 ]
 
-# Filter dataframe to only include rows with valid values for all features
-df_clean = df.dropna(subset=FEATURES)
+velocity_features = [
+    "avg_velocity", "l_shoulder_vel", "r_shoulder_vel",
+    "l_elbow_vel", "r_elbow_vel", "l_wrist_vel", "r_wrist_vel",
+    "nose_vel"
+]
+
+accel_features = [
+    "l_shoulder_accel", "r_shoulder_accel", "l_elbow_accel", "r_elbow_accel",
+    "l_wrist_accel", "r_wrist_accel", "nose_accel", "avg_acceleration"
+]
+
+FEATURES = geom_features + velocity_features + accel_features
+
+# Drop rows missing geometry or velocity; fill accel gaps with 0 to retain first-frame samples
+df_clean = df.dropna(subset=geom_features + velocity_features).copy()
+for c in accel_features:
+    if c in df_clean.columns:
+        df_clean[c] = df_clean[c].fillna(0.0)
 
 if df_clean.empty:
     raise RuntimeError("No samples with valid values for all features. Check data.")
