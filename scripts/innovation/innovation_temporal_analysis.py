@@ -1,6 +1,5 @@
 """
 创新：时间序列分析 - 分析CAER-S视频帧之间的姿态变化
-学姐的数据是独立图像，您的数据是连续视频帧，可以分析姿态动态变化
 """
 import pandas as pd
 import numpy as np

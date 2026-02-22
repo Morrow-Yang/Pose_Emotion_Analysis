@@ -149,5 +149,4 @@ Our work aligns with **Laban Movement Analysis (LMA)** and the **Arousal-Valence
 3. **多模态融合：** 将当前的身体特征与面部关键点结合，建立统一的识别引擎。
 
 ---
-**报告由 AIemotion 项目自动生成。**  
-*高级 AI 编程助手 (GitHub Copilot)*
+

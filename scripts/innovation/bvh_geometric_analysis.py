@@ -17,6 +17,9 @@ from scipy.stats import kruskal
 
 from utils_bvh_parser import BVHParser
 
+# velocity/temporal feature file produced by temporal_3d/v1 pipeline
+TEMPORAL_FEATURE_CSV = Path("outputs/analysis/temporal_3d/v1/bvh_temporal_features.csv")
+
 # ------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------
@@ -136,6 +139,33 @@ def extract_features(coords: Dict[str, np.ndarray]) -> Dict[str, float]:
     return feats
 
 
+def load_temporal_features(csv_path: Path) -> pd.DataFrame:
+    """Aggregate per-sequence velocity stats so they can align with geometric features."""
+    if not csv_path.exists():
+        print(f"[WARN] Temporal CSV not found: {csv_path}")
+        return pd.DataFrame()
+
+    cols = [
+        "avg_velocity",
+        "head_vel",
+        "l_shoulder_vel",
+        "r_shoulder_vel",
+        "l_elbow_vel",
+        "r_elbow_vel",
+        "l_wrist_vel",
+        "r_wrist_vel",
+    ]
+
+    tdf = pd.read_csv(csv_path, usecols=["filename", "emotion", *cols])
+    agg = tdf.groupby(["filename", "emotion"], as_index=False).agg({c: ["mean", "std"] for c in cols})
+    agg.columns = [
+        "filename",
+        "emotion",
+        *[f"{c}_{stat}" for c in cols for stat in ("mean", "std")],
+    ]
+    return agg
+
+
 # ------------------------------------------------------------
 # Main pipeline
 # ------------------------------------------------------------
@@ -179,13 +209,33 @@ def main():
         df.to_csv(feat_csv, index=False, encoding="utf-8-sig")
         print("[+] Saved features:", feat_csv)
 
-    # drop rows with NaN on key features
-    FEATURES = [
+    # merge temporal velocity stats if available
+    tdf = load_temporal_features(TEMPORAL_FEATURE_CSV)
+    if not tdf.empty:
+        df = df.merge(tdf, on=["filename", "emotion"], how="left")
+
+    geom_features = [
         "shoulder_width", "left_hand_height", "right_hand_height", "arm_span_norm",
         "left_elbow_angle", "right_elbow_angle", "left_knee_angle", "right_knee_angle",
         "contraction", "hand_height_asym", "elbow_asym", "head_dx", "head_dy", "head_dz",
         "trunk_tilt_deg"
     ]
+
+    temp_features = []
+    if not tdf.empty:
+        temp_features = [
+            "avg_velocity_mean", "avg_velocity_std",
+            "head_vel_mean", "head_vel_std",
+            "l_shoulder_vel_mean", "l_shoulder_vel_std",
+            "r_shoulder_vel_mean", "r_shoulder_vel_std",
+            "l_elbow_vel_mean", "l_elbow_vel_std",
+            "r_elbow_vel_mean", "r_elbow_vel_std",
+            "l_wrist_vel_mean", "l_wrist_vel_std",
+            "r_wrist_vel_mean", "r_wrist_vel_std",
+        ]
+
+    FEATURES = geom_features + temp_features
+
     df_clean = df.dropna(subset=FEATURES)
     if df_clean.empty:
         print("[!] No clean samples for stats; abort stats stage.")
