@@ -55,6 +55,7 @@ def calculate_motion_features(json_path, emotion):
         
         curr_frame = df_main.iloc[i]['frame_idx']
         prev_frame = df_main.iloc[i-1]['frame_idx']
+        curr_image = df_main.iloc[i]['image_id']
         
         # Only consider it a continuous sequence if frame gap is small (e.g., 1 frame)
         if curr_frame - prev_frame > 2:
@@ -100,6 +101,7 @@ def calculate_motion_features(json_path, emotion):
         
         record = {
             'emotion': emotion,
+            'image_id': curr_image,
             'frame_idx': curr_frame,
             'avg_velocity': avg_vel,
             **velocities,
