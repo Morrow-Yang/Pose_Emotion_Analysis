@@ -74,6 +74,13 @@ Tips:
 - If KMeans warns about MKL memory leak on Windows, set `OMP_NUM_THREADS=6` before running.
 - Subject alignment: the top1 filter is required; otherwise geometry and temporal may refer to different people in the same frame.
 
+  ### AlphaPose settings (CAER train run)
+  - Repo: `data/external/AlphaPose-master`
+  - Config: `configs/coco/resnet/256x192_res50_lr1e-3_1x.yaml`
+  - Checkpoint: `pretrained_models/fast_res50_256x192.pth` (Res50, 256x192, COCO)
+  - Device flag: `--gpus 0` (GPU 0; falls back if CUDA not OK)
+  - CLI tweak: `scripts/demo_inference.py` now loads frames recursively from nested clip folders and keeps clip-relative paths as `image_id` (patched `demo_inference.py` + `alphapose/utils/detector.py`).
+
 ### 3D BVH Analysis (Ground Truth)
 Parse 3D motion capture files using Forward Kinematics to calculate real-world velocity.
 ```bash
