@@ -7,15 +7,38 @@ from tqdm import tqdm
 def calculate_motion_features(json_path, emotion):
     with open(json_path, 'r') as f:
         data = json.load(f)
-    
+
     if not data:
         return pd.DataFrame()
 
-    # Create a DataFrame from AlphaPose results
+    # Normalize possible OpenPose-like dict format: {image: {version, people:[{pose_keypoints_2d}]}}
+    if isinstance(data, dict):
+        normalized = []
+        for img, val in data.items():
+            people = val.get('people', []) if isinstance(val, dict) else []
+            for person in people:
+                kp = person.get('pose_keypoints_2d', [])
+                normalized.append({
+                    'image_id': img,
+                    'keypoints': kp,
+                    'score': 1.0,
+                    'box': [0,0,1,1]
+                })
+        data = normalized
+
+    # Create a DataFrame from AlphaPose-style list
     df = pd.DataFrame(data)
     
-    # Extract frame number from image_id (e.g., '0001.png' -> 1)
-    df['frame_idx'] = df['image_id'].apply(lambda x: int(Path(x).stem))
+    # Extract frame number from image_id (handles nested paths like clip/00001.jpg)
+    def _frame_num(x):
+        stem = Path(x).stem
+        # take trailing digits if any, fallback to whole stem
+        import re
+        m = re.search(r"(\d+)$", stem)
+        return int(m.group(1)) if m else int(stem) if stem.isdigit() else -1
+    df['frame_idx'] = df['image_id'].apply(_frame_num)
+    # drop unknown frames
+    df = df[df['frame_idx'] >= 0]
     
     # AlphaPose can have multiple people per frame. 
     # For temporal tracking without a real tracker, we'll pick the 'main' person per frame.
@@ -111,7 +134,7 @@ def calculate_motion_features(json_path, emotion):
         
     return pd.DataFrame(motion_records)
 
-def main(root_dir, out_dir):
+def main(root_dir, out_dir, json_name="alphapose-results.json"):
     root = Path(root_dir)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -123,7 +146,7 @@ def main(root_dir, out_dir):
     print(f"Detected emotions: {emotions}")
     
     for emotion in emotions:
-        json_path = root / emotion / 'alphapose-results.json'
+        json_path = root / emotion / json_name
         if not json_path.exists():
             continue
             
@@ -161,6 +184,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", required=True, help="AlphaPose result root (contains Angry/, etc.)")
     ap.add_argument("--out", required=True, help="Output directory")
+    ap.add_argument("--json_name", default="alphapose-results.json", help="AlphaPose json filename to read")
     args = ap.parse_args()
-    
-    main(args.root, args.out)
+
+    main(args.root, args.out, args.json_name)

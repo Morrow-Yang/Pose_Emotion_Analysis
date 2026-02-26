@@ -92,8 +92,18 @@ SKELETON_EDGES = [
 # Helpers
 # -----------------------------
 def parse_kp(arr_51):
-    """Return (xy: [17,2], conf: [17])"""
-    a = np.array(arr_51, dtype=float).reshape(17, 3)
+    """Return (xy: [17,2], conf: [17]) supporting 17/18 joints inputs"""
+    a = np.array(arr_51, dtype=float)
+    if a.size % 3 != 0:
+        raise ValueError("keypoints size not divisible by 3")
+    n = a.size // 3
+    a = a.reshape(n, 3)
+    if n >= 17:
+        a = a[:17, :]
+    else:
+        # pad missing joints with nan
+        pad = np.full((17 - n, 3), np.nan)
+        a = np.vstack([a, pad])
     xy = a[:, :2]
     cf = a[:, 2]
     return xy, cf

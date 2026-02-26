@@ -6,13 +6,17 @@ Pose-based emotion analysis with AlphaPose (2D) and BVH motion capture (3D). Thi
 This section explains how to run the key analysis and innovation scripts.
 
 ### 2D Temporal Analysis (CAER-S)
-Extract kinetic energy (velocity/acceleration) from AlphaPose JSON results.
+Extract kinetic energy (velocity/acceleration) from AlphaPose JSON results (AlphaPose list or OpenPose-style dict are both supported).
 ```bash
-python scripts/innovation/temporal_motion_analysis.py --root "outputs/alphapose/outputs/CAER-S/train" --out "outputs/analysis/temporal/v1"
+python scripts/innovation/temporal_motion_analysis.py \
+  --root "outputs/alphapose/outputs/CAER-S/train" \
+  --out  "outputs/analysis/temporal/v1" \
+  --json_name alphapose-results.top1.json   # use top1 to align with geometry
 ```
 **Arguments:**
-- `--root`: Path to the directory containing emotion sub-folders (Angry, Happy, etc.) with `alphapose-results.json`.
+- `--root`: Path to the directory containing emotion sub-folders (Angry, Happy, etc.) with AlphaPose/OpenPose JSON.
 - `--out`: Directory where CSV features and summary statistics will be saved.
+- `--json_name`: Optional; defaults to `alphapose-results.json`. Point to `alphapose-results.top1.json` if you ran the top-1 filter to keep subject alignment with geometry.
 
 ### 2D Visualization
 Generate 4-panel research plots (Velocity, Acceleration, Comparison).
@@ -42,13 +46,14 @@ python scripts/features/filter_top1_alphapose.py \
   --input  outputs/alphapose/outputs/CAER/<emotion>/alphapose-results.json \
   --output outputs/alphapose/outputs/CAER/<emotion>/alphapose-results.top1.json
 ```
-Use the *.top1.json for both geometry and temporal steps to ensure the same subject is used.
+The filter works for AlphaPose lists and OpenPose dict outputs. Always use the `*.top1.json` for both geometry and temporal steps so they track the same subject.
 
 4) Temporal (velocity/acceleration with image_id for merging):
 ```bash
 python scripts/innovation/temporal_motion_analysis.py \
   --root outputs/alphapose/outputs/CAER \
-  --out  outputs/analysis/temporal/caer_v1
+  --out  outputs/analysis/temporal/caer_v1 \
+  --json_name alphapose-results.top1.json
 ```
 
 5) Geometry (v4) from the filtered JSON:
@@ -59,13 +64,13 @@ python scripts/analysis/analysis_v4.py \
   --out_dir outputs/analysis/analysis/caer_v4
 ```
 
-6) Merge geometry + temporal on (emotion, image_id): produces `pose_features_caer_with_temporal.csv` in `outputs/analysis/analysis/caer_v4/`.
+6) Merge geometry + temporal on (emotion, image_id): produces `pose_features_v4_with_temporal.csv` in `outputs/analysis/analysis/caer_v4/`.
 
 7) Fused analysis (PCA, t-SNE, KMeans, Kruskal, RF baseline):
 ```bash
 python scripts/analysis/analysis_v4.py \
   --root outputs/alphapose/outputs/CAER \
-  --precomputed_csv outputs/analysis/analysis/caer_v4/pose_features_caer_with_temporal.csv \
+  --precomputed_csv outputs/analysis/analysis/caer_v4/pose_features_v4_with_temporal.csv \
   --out_dir outputs/analysis/analysis/caer_v4_with_temporal \
   --json_name alphapose-results.top1.json
 ```
@@ -73,6 +78,8 @@ python scripts/analysis/analysis_v4.py \
 Tips:
 - If KMeans warns about MKL memory leak on Windows, set `OMP_NUM_THREADS=6` before running.
 - Subject alignment: the top1 filter is required; otherwise geometry and temporal may refer to different people in the same frame.
+- Geometry v4 can read 17- or 18-keypoint inputs and trims/pads to 17 joints for consistency.
+- Temporal extraction accepts AlphaPose lists and OpenPose dict JSONs (use `--json_name` to point at your filtered file).
 
   ### AlphaPose settings (CAER train run)
   - Repo: `data/external/AlphaPose-master`
