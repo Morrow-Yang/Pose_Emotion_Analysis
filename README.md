@@ -91,11 +91,21 @@ Tips:
 ### 3D BVH Analysis (Ground Truth)
 Parse 3D motion capture files using Forward Kinematics to calculate real-world velocity.
 ```bash
-python scripts/innovation/bvh_temporal_analysis.py --root "data/raw/kinematic-dataset-of-actors..." --out "outputs/analysis/temporal_3d/v1"
+python scripts/innovation/bvh_temporal_analysis.py \
+  --root "data/raw/kinematic-dataset-of-actors..." \
+  --out  "outputs/analysis/temporal_3d/v1" \
+  --file_info file-info.csv   # 可选，若不存在则从 BVH/<emotion>/<actor> 目录结构推断情绪
 ```
 **Arguments:**
 - `--root`: Root directory of the Kinematic Dataset (containing the `BVH/` folder and `file-info.csv`).
 - `--out`: Directory to save the 3D features and summary.
+- `--file_info`: Optional manifest (filename, emotion, actor_ID). If missing, emotions are inferred from folder names under `BVH/<emotion>/<actor>/*.bvh`.
+
+**Outputs (aligned with 2D时序列):**
+- `bvh_temporal_features.csv`: per-frame `avg_velocity`, `avg_acceleration`，以及各关节 `*_vel`/`*_accel`（head/shoulders/elbows/wrists），附带 `frame_idx`、`time_sec`、`dataset`、`actor`、`filename`、`emotion`。
+- `bvh_temporal_summary.csv`: 按情绪聚合的均值/标准差。
+
+**Emotional body motion data（第二个3D集）**：同一脚本适用，将 `--root` 指向该数据集根目录；若无 `file-info.csv`，需保证结构类似 `BVH/<emotion>/<actor>/*.bvh` 以便自动推断情绪。
 
 ### Cross-Modal Validation
 Compare 2D estimates from AlphaPose against 3D Ground Truth from BVH.
