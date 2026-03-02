@@ -81,6 +81,25 @@ Tips:
 - Geometry v4 can read 17- or 18-keypoint inputs and trims/pads to 17 joints for consistency.
 - Temporal extraction accepts AlphaPose lists and OpenPose dict JSONs (use `--json_name` to point at your filtered file).
 
+### 时序滑窗聚合 (2D/3D 对齐)
+对 per-frame 特征做滑窗统计（均值/峰值/95分位/方差、高能占比、最长连续高能帧数），便于时间段分析和跨模态对比。
+```bash
+# 2D CAER (10fps)
+python scripts/innovation/window_temporal_features.py \
+  --input outputs/analysis/temporal/caer_v1/temporal_motion_features.csv \
+  --output outputs/analysis/temporal/caer_v1/temporal_motion_windows.csv \
+  --window_sec 1.0 --hop_sec 0.5 --fps 10
+
+# 3D BVH (≈60fps，如果 time_sec 已存在则 fps 参数忽略)
+python scripts/innovation/window_temporal_features.py \
+  --input outputs/analysis/temporal_3d/v1/bvh_temporal_features.csv \
+  --output outputs/analysis/temporal_3d/v1/bvh_temporal_windows.csv \
+  --window_sec 1.0 --hop_sec 0.5 --fps 60
+```
+**输出列示例：**
+- 分组元信息：dataset/actor/filename/emotion（存在则保留）、t_start、t_end、num_frames。
+- 统计：`<feat>_mean/_max/_p95/_std/_high_ratio/_high_stretch`，feat 包括 `avg_velocity`、`avg_acceleration` 以及所有 `*_vel`/`*_accel`。
+
   ### AlphaPose settings (CAER train run)
   - Repo: `data/external/AlphaPose-master`
   - Config: `configs/coco/resnet/256x192_res50_lr1e-3_1x.yaml`
