@@ -84,241 +84,327 @@ def contraction_index_3d(norm_coords: Dict[str, np.ndarray]) -> float:
     return float(-np.mean(d))
 
 
-def trunk_tilt(norm_coords: Dict[str, np.ndarray]) -> float:
-    """Angle between trunk (Hips->Head) and world up (0,1,0)."""
-    if "Hips" not in norm_coords or "Head" not in norm_coords:
-        return np.nan
-    vec = norm_coords["Head"] - norm_coords["Hips"]
-    nvec = np.linalg.norm(vec)
-    if nvec < 1e-8:
-        return np.nan
-    vec = vec / nvec
-    up = np.array([0.0, 1.0, 0.0])
-    cosv = np.clip(np.dot(vec, up), -1.0, 1.0)
-    return float(np.degrees(np.arccos(cosv)))  # 0=直立, 越大越倾斜
-
-
-def normalize_coords(raw: Dict[str, np.ndarray]) -> Tuple[Dict[str, np.ndarray], float]:
-    """Translate by Hips, scale by spine length (Head-Hips)."""
-    if "Hips" not in raw or "Head" not in raw:
-        return {}, np.nan
-    spine = np.linalg.norm(raw["Head"] - raw["Hips"])
-    if spine < 1e-8:
-        return {}, np.nan
-    normed = {k: (v - raw["Hips"]) / spine for k, v in raw.items()}
-    return normed, spine
-
-
-def extract_features(coords: Dict[str, np.ndarray]) -> Dict[str, float]:
-    norm, spine = normalize_coords(coords)
+def extract_frame_features(raw: Dict[str, np.ndarray]) -> Dict[str, float]:
+    """Extract all geometry features (2D-like + 3D-only) from a single frame."""
+    norm, spine = normalize_coords(raw)
     if not norm:
         return {}
 
-    feats = {}
-    # shoulder width
-    if "LeftShoulder" in norm and "RightShoulder" in norm:
-        feats["shoulder_width"] = float(np.linalg.norm(norm["LeftShoulder"] - norm["RightShoulder"]))
+    f: Dict[str, float] = {}
+
+    ls  = norm.get("LeftShoulder")
+    rs  = norm.get("RightShoulder")
+    lh  = norm.get("LeftHand")
+    rh  = norm.get("RightHand")
+    lf  = norm.get("LeftForeArm")
+    rf  = norm.get("RightForeArm")
+    lu  = norm.get("LeftUpLeg")
+    ru  = norm.get("RightUpLeg")
+    ll  = norm.get("LeftLeg")
+    rl  = norm.get("RightLeg")
+    lft = norm.get("LeftFoot")
+    rft = norm.get("RightFoot")
+    head = norm.get("Head")
+    neck = norm.get("Neck")
+    sp1  = norm.get("Spine")
+    sp2  = norm.get("Spine2")
+    sp3  = norm.get("Spine3")
+
+    # ── 2D-equivalent features ─────────────────────────────────────────────────
+    sw = float(np.linalg.norm(ls - rs)) if (ls is not None and rs is not None) else np.nan
+    f["shoulder_width"] = sw
+
+    f["left_hand_height"]  = float(lh[1] - ls[1]) if (lh is not None and ls is not None) else np.nan
+    f["right_hand_height"] = float(rh[1] - rs[1]) if (rh is not None and rs is not None) else np.nan
+
+    if lh is not None and rh is not None and np.isfinite(sw) and sw > 1e-6:
+        f["arm_span_norm"] = float(abs(lh[0] - rh[0]) / sw)
     else:
-        feats["shoulder_width"] = np.nan
+        f["arm_span_norm"] = np.nan
 
-    # hand height relative to shoulder (Y axis up)
-    for side in ["Left", "Right"]:
-        shoulder = norm.get(f"{side}Shoulder")
-        hand = norm.get(f"{side}Hand")
-        feats[f"{side.lower()}_hand_height"] = float(hand[1] - shoulder[1]) if (shoulder is not None and hand is not None) else np.nan
+    f["left_elbow_angle"]  = angle_3d(ls  if ls  is not None else np.nan,
+                                       lf  if lf  is not None else np.nan,
+                                       lh  if lh  is not None else np.nan)
+    f["right_elbow_angle"] = angle_3d(rs  if rs  is not None else np.nan,
+                                       rf  if rf  is not None else np.nan,
+                                       rh  if rh  is not None else np.nan)
+    f["left_knee_angle"]   = angle_3d(lu  if lu  is not None else np.nan,
+                                       ll  if ll  is not None else np.nan,
+                                       lft if lft is not None else np.nan)
+    f["right_knee_angle"]  = angle_3d(ru  if ru  is not None else np.nan,
+                                       rl  if rl  is not None else np.nan,
+                                       rft if rft is not None else np.nan)
 
-    # arm span normalized by shoulder width
-    lw, rw = norm.get("LeftHand"), norm.get("RightHand")
-    if lw is not None and rw is not None and np.isfinite(feats["shoulder_width"]) and feats["shoulder_width"] > 1e-6:
-        feats["arm_span_norm"] = float(abs(lw[0] - rw[0]) / feats["shoulder_width"])
+    f["contraction"] = contraction_index_3d(norm)
+
+    f["hand_height_asym"] = (abs(f["left_hand_height"] - f["right_hand_height"])
+                              if np.isfinite(f["left_hand_height"]) and np.isfinite(f["right_hand_height"])
+                              else np.nan)
+    f["elbow_asym"] = (abs(f["left_elbow_angle"] - f["right_elbow_angle"])
+                       if np.isfinite(f["left_elbow_angle"]) and np.isfinite(f["right_elbow_angle"])
+                       else np.nan)
+
+    if ls is not None and rs is not None and head is not None:
+        smid = (ls + rs) / 2.0
+        hdiff = head - smid
+        f["head_dx"], f["head_dy"], f["head_dz"] = float(hdiff[0]), float(hdiff[1]), float(hdiff[2])
     else:
-        feats["arm_span_norm"] = np.nan
+        f["head_dx"] = f["head_dy"] = f["head_dz"] = np.nan
 
-    # elbow & knee angles
-    feats["left_elbow_angle"] = angle_3d(norm.get("LeftShoulder", np.nan), norm.get("LeftForeArm", np.nan), norm.get("LeftHand", np.nan))
-    feats["right_elbow_angle"] = angle_3d(norm.get("RightShoulder", np.nan), norm.get("RightForeArm", np.nan), norm.get("RightHand", np.nan))
-    feats["left_knee_angle"] = angle_3d(norm.get("LeftUpLeg", np.nan), norm.get("LeftLeg", np.nan), norm.get("LeftFoot", np.nan))
-    feats["right_knee_angle"] = angle_3d(norm.get("RightUpLeg", np.nan), norm.get("RightLeg", np.nan), norm.get("RightFoot", np.nan))
-
-    # contraction
-    feats["contraction"] = contraction_index_3d(norm)
-
-    # symmetry
-    lh = feats["left_hand_height"]
-    rh = feats["right_hand_height"]
-    feats["hand_height_asym"] = abs(lh - rh) if (np.isfinite(lh) and np.isfinite(rh)) else np.nan
-
-    le = feats["left_elbow_angle"]
-    re = feats["right_elbow_angle"]
-    feats["elbow_asym"] = abs(le - re) if (np.isfinite(le) and np.isfinite(re)) else np.nan
-
-    # head relative to shoulder mid
-    if "LeftShoulder" in norm and "RightShoulder" in norm and "Head" in norm:
-        shoulder_mid = (norm["LeftShoulder"] + norm["RightShoulder"]) / 2.0
-        head_dx, head_dy, head_dz = (norm["Head"] - shoulder_mid)
-        feats["head_dx"] = float(head_dx)
-        feats["head_dy"] = float(head_dy)
-        feats["head_dz"] = float(head_dz)
+    if head is not None:
+        vec = head / (np.linalg.norm(head) + 1e-9)
+        f["trunk_tilt_deg"] = float(np.degrees(np.arccos(np.clip(np.dot(vec, [0.0, 1.0, 0.0]), -1, 1))))
     else:
-        feats["head_dx"] = feats["head_dy"] = feats["head_dz"] = np.nan
+        f["trunk_tilt_deg"] = np.nan
 
-    feats["trunk_tilt_deg"] = trunk_tilt(norm)
-    feats["spine_len"] = spine
-    return feats
+    # ── 3D-only features ───────────────────────────────────────────────────────
+    # 1. Spine bend: angle at Spine node (Hips(=0)→Spine→Spine2)
+    hips_n = norm.get("Hips")  # = [0,0,0] after normalisation
+    f["spine_bend_deg"] = angle_3d(
+        hips_n if hips_n is not None else np.nan,
+        sp1    if sp1   is not None else np.nan,
+        sp2    if sp2   is not None else np.nan)
+
+    # 2. Lateral lean: signed angle of trunk projected onto coronal (XY) plane
+    if head is not None:
+        vec = head / (np.linalg.norm(head) + 1e-9)
+        f["lateral_lean_deg"] = float(np.degrees(np.arctan2(vec[0], vec[1])))
+    else:
+        f["lateral_lean_deg"] = np.nan
+
+    # 3. Head forward lean: angle at Neck (Spine3→Neck→Head)
+    f["head_forward_deg"] = angle_3d(
+        sp3  if sp3  is not None else np.nan,
+        neck if neck is not None else np.nan,
+        head if head is not None else np.nan)
+
+    # 4. Pelvis height: raw Hips Y / spine length (absolute elevation, e.g. sitting vs standing)
+    hip_raw = raw.get("Hips")
+    f["pelvis_height_norm"] = float(hip_raw[1] / spine) if (hip_raw is not None and np.isfinite(spine)) else np.nan
+
+    # 5. Foot spread: L-R foot distance normalised by shoulder width
+    if lft is not None and rft is not None and np.isfinite(sw) and sw > 1e-6:
+        f["foot_spread_norm"] = float(np.linalg.norm(lft - rft) / sw)
+    else:
+        f["foot_spread_norm"] = np.nan
+
+    # 6. Hand depth difference: |Z_Lwrist - Z_Rwrist|  (forward/backward reach asymmetry)
+    if lh is not None and rh is not None:
+        f["hand_depth_diff"] = float(abs(lh[2] - rh[2]))
+        f["wrist_z_asym"]    = float(lh[2] - rh[2])
+    else:
+        f["hand_depth_diff"] = f["wrist_z_asym"] = np.nan
+
+    # 7. Knee bend asymmetry
+    f["knee_bend_asym"] = (abs(f["left_knee_angle"] - f["right_knee_angle"])
+                           if np.isfinite(f["left_knee_angle"]) and np.isfinite(f["right_knee_angle"])
+                           else np.nan)
+
+    # 8. Total body extent: bounding-box diagonal of all normalised joints
+    all_pts = np.stack(list(norm.values()))
+    mn, mx = all_pts.min(0), all_pts.max(0)
+    f["body_extent"] = float(np.linalg.norm(mx - mn))
+
+    return f
 
 
-def load_temporal_features(csv_path: Path) -> pd.DataFrame:
-    """Aggregate per-sequence velocity stats so they can align with geometric features."""
-    if not csv_path.exists():
-        print(f"[WARN] Temporal CSV not found: {csv_path}")
-        return pd.DataFrame()
+def aggregate_file_features(bvh_path: str, subsample: int = 30) -> Dict[str, float]:
+    """Extract per-frame geometry and aggregate to file-level stats (mean/std/range)."""
+    parser = BVHParser(bvh_path)
+    n_frames = len(parser.frames)
+    indices = list(range(0, n_frames, subsample)) if subsample > 0 else list(range(n_frames))
 
-    cols = [
-        "avg_velocity",
-        "head_vel",
-        "l_shoulder_vel",
-        "r_shoulder_vel",
-        "l_elbow_vel",
-        "r_elbow_vel",
-        "l_wrist_vel",
-        "r_wrist_vel",
-    ]
+    records: List[Dict[str, float]] = []
+    for i in indices:
+        coords = parser.get_joint_world_coords(i)
+        feats = extract_frame_features(coords)
+        if feats:
+            records.append(feats)
 
-    tdf = pd.read_csv(csv_path, usecols=["filename", "emotion", *cols])
-    agg = tdf.groupby(["filename", "emotion"], as_index=False).agg({c: ["mean", "std"] for c in cols})
-    agg.columns = [
-        "filename",
-        "emotion",
-        *[f"{c}_{stat}" for c in cols for stat in ("mean", "std")],
-    ]
+    if not records:
+        return {}
+
+    df_frames = pd.DataFrame(records)
+    agg: Dict[str, float] = {}
+    for col in df_frames.columns:
+        vals = df_frames[col].dropna()
+        if len(vals) == 0:
+            agg[f"{col}_mean"] = agg[f"{col}_std"] = agg[f"{col}_range"] = np.nan
+        else:
+            agg[f"{col}_mean"]  = float(vals.mean())
+            agg[f"{col}_std"]   = float(vals.std(ddof=1)) if len(vals) > 1 else 0.0
+            agg[f"{col}_range"] = float(vals.max() - vals.min())
     return agg
 
 
-# ------------------------------------------------------------
-# Main pipeline
-# ------------------------------------------------------------
+def load_temporal_features(csv_path: Path) -> pd.DataFrame:
+    """Load and aggregate per-frame velocity CSV to file-level stats."""
+    if not csv_path.exists():
+        print(f"[WARN] Temporal CSV not found: {csv_path}")
+        return pd.DataFrame()
+    vel_cols = ["avg_velocity","head_vel","l_shoulder_vel","r_shoulder_vel",
+                "l_elbow_vel","r_elbow_vel","l_wrist_vel","r_wrist_vel"]
+    tdf = pd.read_csv(csv_path, usecols=["filename","emotion"] + vel_cols)
+    agg = tdf.groupby(["filename","emotion"], as_index=False).agg(
+        {c: ["mean","std","max"] for c in vel_cols})
+    agg.columns = (["filename","emotion"] +
+                   [f"{c}_{s}" for c in vel_cols for s in ("mean","std","max")])
+    return agg
+
+
+# ── main ───────────────────────────────────────────────────────────────────────
 
 def main():
-    dataset_root = Path("data/raw/kinematic-dataset-of-actors-expressing-emotions-2.1.0")
-    info_df = pd.read_csv(dataset_root / "file-info.csv")
-    bvh_dir = dataset_root / "BVH"
-    out_dir = Path("outputs/analysis/geom_bvh_v1")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    feat_csv = out_dir / "bvh_geom_features.csv"
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    feat_csv = OUT_DIR / "bvh_geom_features.csv"
 
+    info_df = pd.read_csv(DATASET_ROOT / "file-info.csv")
+    bvh_dir = DATASET_ROOT / "BVH"
+
+    # ── Step 1: extract / load geometry features (all frames, subsample=30) ───
     if feat_csv.exists():
-        print(f"[+] Load existing features: {feat_csv}")
+        print(f"[+] Load existing geometry features: {feat_csv}")
         df = pd.read_csv(feat_csv)
     else:
         rows: List[dict] = []
-        print("[+] Computing 3D几何特征 (与2D对齐)...")
+        print("[+] Extracting 3D geometry features (all frames, subsample every 30) ...")
         for _, row in tqdm(info_df.iterrows(), total=len(info_df)):
-            fname = row["filename"]
+            fname   = row["filename"]
             emotion = row["emotion"]
-            actor = row["actor_ID"]
+            actor   = row["actor_ID"]
             bvh_path = bvh_dir / actor / f"{fname}.bvh"
             if not bvh_path.exists():
                 continue
             try:
-                parser = BVHParser(str(bvh_path))
-                coords = parser.get_joint_world_coords(0)  # 使用第0帧代表静态姿态
-                feats = extract_features(coords)
+                feats = aggregate_file_features(str(bvh_path), subsample=30)
                 if not feats:
                     continue
-                feats["emotion"] = emotion
+                feats["emotion"]  = emotion
                 feats["filename"] = fname
-                feats["actor"] = actor
+                feats["actor"]    = actor
                 rows.append(feats)
             except Exception as e:
                 print(f"[WARN] skip {fname}: {e}")
-                continue
-
         df = pd.DataFrame(rows)
         df.to_csv(feat_csv, index=False, encoding="utf-8-sig")
-        print("[+] Saved features:", feat_csv)
+        print(f"[+] Saved {len(df)} file-level rows -> {feat_csv}")
 
-    # merge temporal velocity stats if available
-    tdf = load_temporal_features(TEMPORAL_FEATURE_CSV)
+    # ── Step 2: merge temporal velocity stats ─────────────────────────────────
+    tdf = load_temporal_features(TEMPORAL_FEAT_CSV)
     if not tdf.empty:
-        df = df.merge(tdf, on=["filename", "emotion"], how="left")
+        df = df.merge(tdf, on=["filename","emotion"], how="left")
+        print(f"[+] Merged temporal features; df shape: {df.shape}")
 
-    geom_features = [
-        "shoulder_width", "left_hand_height", "right_hand_height", "arm_span_norm",
-        "left_elbow_angle", "right_elbow_angle", "left_knee_angle", "right_knee_angle",
-        "contraction", "hand_height_asym", "elbow_asym", "head_dx", "head_dy", "head_dz",
-        "trunk_tilt_deg"
-    ]
+    # ── Step 3: define feature sets ───────────────────────────────────────────
+    GEOM_2D_LIKE = [c for c in df.columns
+                    if any(c.startswith(p) for p in [
+                        "shoulder_width","left_hand_height","right_hand_height",
+                        "arm_span_norm","left_elbow_angle","right_elbow_angle",
+                        "left_knee_angle","right_knee_angle","contraction",
+                        "hand_height_asym","elbow_asym","head_dx","head_dy",
+                        "head_dz","trunk_tilt_deg"])
+                    and c not in ("emotion","filename","actor")]
 
-    temp_features = []
-    if not tdf.empty:
-        temp_features = [
-            "avg_velocity_mean", "avg_velocity_std",
-            "head_vel_mean", "head_vel_std",
-            "l_shoulder_vel_mean", "l_shoulder_vel_std",
-            "r_shoulder_vel_mean", "r_shoulder_vel_std",
-            "l_elbow_vel_mean", "l_elbow_vel_std",
-            "r_elbow_vel_mean", "r_elbow_vel_std",
-            "l_wrist_vel_mean", "l_wrist_vel_std",
-            "r_wrist_vel_mean", "r_wrist_vel_std",
-        ]
+    GEOM_3D_ONLY = [c for c in df.columns
+                    if any(c.startswith(p) for p in [
+                        "spine_bend_deg","lateral_lean_deg","head_forward_deg",
+                        "pelvis_height_norm","foot_spread_norm","hand_depth_diff",
+                        "wrist_z_asym","knee_bend_asym","body_extent"])
+                    and c not in ("emotion","filename","actor")]
 
-    FEATURES = geom_features + temp_features
+    VEL_FEATS = [c for c in df.columns
+                 if any(c.startswith(p) for p in [
+                     "avg_velocity","head_vel","l_shoulder_vel","r_shoulder_vel",
+                     "l_elbow_vel","r_elbow_vel","l_wrist_vel","r_wrist_vel"])
+                 and c not in ("emotion","filename","actor")]
 
-    df_clean = df.dropna(subset=FEATURES)
-    if df_clean.empty:
-        print("[!] No clean samples for stats; abort stats stage.")
-        return
+    ALL_FEATS = GEOM_2D_LIKE + GEOM_3D_ONLY + VEL_FEATS
+    print(f"[+] Features – 2D-like: {len(GEOM_2D_LIKE)}, 3D-only: {len(GEOM_3D_ONLY)}, "
+          f"velocity: {len(VEL_FEATS)}, total: {len(ALL_FEATS)}")
 
-    # 1) Kruskal-Wallis per feature
-    stats_rows = []
-    for feat in FEATURES:
-        groups = [grp[feat].values for _, grp in df_clean.groupby("emotion")]
+    df_clean = df.dropna(subset=ALL_FEATS, how="all").copy()
+    for c in ALL_FEATS:
+        if c in df_clean.columns:
+            df_clean[c] = df_clean[c].fillna(df_clean[c].median())
+    print(f"[+] Clean samples: {len(df_clean)}")
+
+    # ── Step 4: Kruskal-Wallis per feature ────────────────────────────────────
+    kw_rows = []
+    for feat in ALL_FEATS:
+        if feat not in df_clean.columns:
+            continue
+        groups = [g[feat].values for _, g in df_clean.groupby("emotion")]
+        groups = [g for g in groups if len(g) > 1]
         if len(groups) < 2:
             continue
-        H, p = kruskal(*groups)
-        stats_rows.append({"feature": feat, "H": H, "p": p})
-    stats_df = pd.DataFrame(stats_rows)
-    stats_df.to_csv(out_dir / "kruskal_results.csv", index=False)
-    print("[+] Saved stats: kruskal_results.csv")
+        try:
+            H, p = kruskal(*groups)
+            kw_rows.append({"feature": feat, "H": H, "p": p,
+                             "category": ("2D-like" if feat in GEOM_2D_LIKE
+                                          else "3D-only" if feat in GEOM_3D_ONLY
+                                          else "velocity")})
+        except Exception:
+            pass
+    kw_df = pd.DataFrame(kw_rows).sort_values("H", ascending=False)
+    kw_df.to_csv(OUT_DIR / "kruskal_results.csv", index=False)
+    print("[+] Saved kruskal_results.csv")
+    print("\n=== Top-20 features by KW H ===")
+    print(kw_df.head(20).to_string(index=False))
 
-    # 2) PCA
-    X = df_clean[FEATURES].values
+    # ── Step 5: PCA (standardised) ────────────────────────────────────────────
+    from sklearn.preprocessing import StandardScaler
+    X_all = df_clean[ALL_FEATS].values
+    X_scaled = StandardScaler().fit_transform(X_all)
+
     pca = PCA(n_components=2, random_state=42)
-    pc = pca.fit_transform(X)
-    pca_df = pd.DataFrame({"pc1": pc[:, 0], "pc2": pc[:, 1], "emotion": df_clean["emotion"].values})
-    pca_df.to_csv(out_dir / "pca_2d.csv", index=False)
-    print("[+] Saved PCA projection: pca_2d.csv explained_var=", pca.explained_variance_ratio_)
+    pc  = pca.fit_transform(X_scaled)
+    pd.DataFrame({"pc1": pc[:,0], "pc2": pc[:,1],
+                  "emotion": df_clean["emotion"].values}).to_csv(
+        OUT_DIR / "pca_2d.csv", index=False)
+    print(f"[+] PCA explained_var: {pca.explained_variance_ratio_}")
 
-    # 3) t-SNE (small perplexity for 1k samples)
-    tsne = TSNE(n_components=2, random_state=42, perplexity=30, learning_rate=200, n_iter=500)
-    ts = tsne.fit_transform(X)
-    ts_df = pd.DataFrame({"tsne1": ts[:, 0], "tsne2": ts[:, 1], "emotion": df_clean["emotion"].values})
-    ts_df.to_csv(out_dir / "tsne_2d.csv", index=False)
-    print("[+] Saved t-SNE projection: tsne_2d.csv")
+    # ── Step 6: t-SNE ─────────────────────────────────────────────────────────
+    tsne = TSNE(n_components=2, random_state=42, perplexity=30, max_iter=1000)
+    ts   = tsne.fit_transform(X_scaled)
+    pd.DataFrame({"tsne1": ts[:,0], "tsne2": ts[:,1],
+                  "emotion": df_clean["emotion"].values}).to_csv(
+        OUT_DIR / "tsne_2d.csv", index=False)
+    print("[+] Saved tsne_2d.csv")
 
-    # 4) KMeans silhouette sweep
-    sil_rows = []
-    for k in [2, 3, 4, 5, 6]:
-        km = KMeans(n_clusters=k, random_state=42, n_init="auto")
-        labels = km.fit_predict(X)
-        sil = silhouette_score(X, labels)
-        sil_rows.append({"k": k, "silhouette": sil})
-    pd.DataFrame(sil_rows).to_csv(out_dir / "kmeans_silhouette.csv", index=False)
-    print("[+] Saved kmeans_silhouette.csv")
+    # ── Step 7: RF with actor-level group split ────────────────────────────────
+    from sklearn.model_selection import GroupShuffleSplit
+    y      = df_clean["emotion"].values
+    groups = df_clean["actor"].values
 
-    # 5) RandomForest baseline (geometry only)
-    y = df_clean["emotion"].values
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    clf = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    rpt = classification_report(y_test, y_pred, output_dict=True)
-    feat_imp = sorted(zip(FEATURES, clf.feature_importances_), key=lambda x: x[1], reverse=True)
+    gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+    train_idx, test_idx = next(gss.split(X_scaled, y, groups))
+    X_tr, X_te = X_scaled[train_idx], X_scaled[test_idx]
+    y_tr, y_te = y[train_idx], y[test_idx]
+    print(f"[+] RF split – train actors: {len(set(groups[train_idx]))}, "
+          f"test actors: {len(set(groups[test_idx]))}, test N={len(y_te)}")
 
-    with open(out_dir / "rf_report.json", "w", encoding="utf-8") as f:
-        json.dump({"accuracy": acc, "report": rpt, "feature_importance": feat_imp}, f, ensure_ascii=False, indent=2)
-    print(f"[+] RF accuracy={acc:.3f}; saved rf_report.json")
+    clf = RandomForestClassifier(n_estimators=300, random_state=42, n_jobs=-1)
+    clf.fit(X_tr, y_tr)
+    y_pred = clf.predict(X_te)
+    acc    = accuracy_score(y_te, y_pred)
+    rpt    = classification_report(y_te, y_pred, output_dict=True)
+    fi     = sorted(zip(ALL_FEATS, clf.feature_importances_),
+                    key=lambda x: x[1], reverse=True)
+
+    with open(OUT_DIR / "rf_report.json", "w", encoding="utf-8") as fh:
+        json.dump({"accuracy": acc, "report": rpt, "feature_importance": fi},
+                  fh, ensure_ascii=False, indent=2)
+
+    print(f"\n=== RF (actor-stratified) accuracy={acc:.3f} ===")
+    for emo in ["Angry","Disgust","Fearful","Happy","Neutral","Sad","Surprise"]:
+        if emo in rpt:
+            r = rpt[emo]
+            print(f"  {emo:<10} P={r['precision']:.2f} R={r['recall']:.2f} "
+                  f"F1={r['f1-score']:.2f}  N={int(r['support'])}")
+    print(f"  macro-avg F1={rpt['macro avg']['f1-score']:.3f}")
+    print("Top-10 features:", [f[0] for f in fi[:10]])
+    print(f"\n[✓] All outputs saved to {OUT_DIR}/")
+
 
 if __name__ == "__main__":
     main()
