@@ -48,6 +48,19 @@ python scripts/features/filter_top1_alphapose.py \
 ```
 The filter works for AlphaPose lists and OpenPose dict outputs. Always use the `*.top1.json` for both geometry and temporal steps so they track the same subject.
 
+Optional pre-filter (recommended): run YOLOv8 人体筛选，剔除无人体/仅头手/过小/遮挡帧，再送 AlphaPose。
+```bash
+python scripts/features/yolo_filter_frames.py \
+  --root outputs/frames/CAER/train \
+  --model yolov8n.pt \
+  --conf 0.35 --min_area_ratio 0.01 --min_height_ratio 0.1 --max_ar 4.0 \
+  --batch 16 \
+  --out_keep outputs/manifests/caer_keep.txt \
+  --out_drop outputs/manifests/caer_drop.txt
+```
+- 作用：过滤掉无人体、仅头/手、极小或极细长遮挡框的帧，减少 AlphaPose 空跑和脏姿态。
+- 保留/丢弃清单写入 `outputs/manifests/`，可据此重跑后续管线。
+
 4) Temporal (velocity/acceleration with image_id for merging):
 ```bash
 python scripts/innovation/temporal_motion_analysis.py \

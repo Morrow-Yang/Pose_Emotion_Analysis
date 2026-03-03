@@ -1,44 +1,72 @@
-import math
+"""
+BVH Geometric & Temporal Analysis  –  v2
+==========================================
+Fixes from v1:
+  - Geometric features now aggregated over ALL frames per file (mean/std/range),
+    not just frame-0 (which was often a neutral T-pose).
+  - Added 3D-only features that have no 2D equivalent:
+      * spine_bend_deg     – lumbar flexion (Hips→Spine→Spine2)
+      * lateral_lean_deg   – lateral trunk tilt (signed L/R)
+      * head_forward_deg   – head forward-lean relative to neck
+      * pelvis_height_norm – absolute Y position of Hips / spine-length
+      * foot_spread_norm   – distance between feet / shoulder-width
+      * hand_depth_diff    – difference in Z-depth between hands (3D space)
+      * wrist_z_asym       – signed Z difference of wrists
+      * knee_bend_asym     – |left_knee_angle - right_knee_angle|
+      * body_extent        – bounding-box diagonal of all joints (expressivity)
+  - RF split is actor-stratified (GroupShuffleSplit) to prevent leakage.
+"""
+
 import json
+import warnings
 from pathlib import Path
-from typing import Dict, Tuple, List
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, accuracy_score
 from scipy.stats import kruskal
+from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.manifold import TSNE
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.model_selection import GroupShuffleSplit
+from sklearn.preprocessing import StandardScaler
 
 from utils_bvh_parser import BVHParser
 
-# velocity/temporal feature file produced by temporal_3d/v1 pipeline
-TEMPORAL_FEATURE_CSV = Path("outputs/analysis/temporal_3d/v1/bvh_temporal_features.csv")
+warnings.filterwarnings("ignore")
 
-# ------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------
+# ── paths ──────────────────────────────────────────────────────────────────────
+DATASET_ROOT      = Path("data/raw/kinematic-dataset-of-actors-expressing-emotions-2.1.0")
+TEMPORAL_FEAT_CSV = Path("outputs/analysis/temporal_3d/v1/bvh_temporal_features.csv")
+OUT_DIR           = Path("outputs/analysis/geom_bvh_v2")
+
 
 def angle_3d(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
-    """Return angle ABC in degrees using 3D vectors."""
-    ba = a - b
-    bc = c - b
-    nba = np.linalg.norm(ba)
-    nbc = np.linalg.norm(bc)
-    if nba < 1e-8 or nbc < 1e-8:
+    """Angle at vertex B (degrees)."""
+    ba, bc = a - b, c - b
+    n1, n2 = np.linalg.norm(ba), np.linalg.norm(bc)
+    if n1 < 1e-8 or n2 < 1e-8:
         return np.nan
-    cosv = np.clip(np.dot(ba, bc) / (nba * nbc), -1.0, 1.0)
-    return float(np.degrees(np.arccos(cosv)))
+    return float(np.degrees(np.arccos(np.clip(np.dot(ba, bc) / (n1 * n2), -1, 1))))
+
+
+def normalize_coords(raw: Dict[str, np.ndarray]) -> Tuple[Dict[str, np.ndarray], float]:
+    """Center on Hips, scale by Head-Hips spine length."""
+    hip = raw.get("Hips")
+    head = raw.get("Head")
+    if hip is None or head is None:
+        return {}, np.nan
+    spine = np.linalg.norm(head - hip)
+    if spine < 1e-8:
+        return {}, np.nan
+    return {k: (v - hip) / spine for k, v in raw.items()}, spine
 
 
 def contraction_index_3d(norm_coords: Dict[str, np.ndarray]) -> float:
-    """Negative mean distance to torso center; more positive = more收缩."""
-    use = ["Head", "LeftShoulder", "RightShoulder", "LeftElbow", "RightElbow",
+    """Negative mean distance to torso center; more positive = more contracted."""
+    use = ["Head", "LeftShoulder", "RightShoulder", "LeftForeArm", "RightForeArm",
            "LeftHand", "RightHand", "LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg"]
     pts = []
     for n in use:
