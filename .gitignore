@@ -5,6 +5,11 @@ __pycache__/
 *.pyd
 *.egg-info/
 
+# Model weights
+*.pt
+*.pth
+*.onnx
+
 # Environments
 .venv/
 venv/
@@ -25,3 +30,4 @@ Thumbs.db
 # for presentation use
 /manifest/*
 /references/*
+/docs/*

@@ -14,7 +14,7 @@ import matplotlib.cm as cm
 from pathlib import Path
 
 import sys
-sys.path.insert(0, str(Path("scripts/innovation")))
+sys.path.insert(0, str(Path("scripts/pipeline")))
 from utils_bvh_parser import BVHParser
 
 # ── config ────────────────────────────────────────────────────────────────────
